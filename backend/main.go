@@ -10,6 +10,8 @@ import (
     "github.com/gin-contrib/static"
 	"bank-fraud-demo/api"
 	"bank-fraud-demo/services"
+	"net/http/httputil"
+	"net/url"
     "bank-fraud-demo/db"
 )
 
@@ -80,6 +82,12 @@ func main() {
     r.POST("/api/stats", handler.UpdateStats)
 
     // Serve Frontend Static Files (Production)
+    // Reverse proxy for AI service on same port
+    aiProxy := httputil.NewSingleHostReverseProxy(&url.URL{Scheme: "http", Host: "localhost:5001"})
+    r.Any("/api/ai/*proxyPath", func(c *gin.Context) {
+        c.Request.URL.Path = strings.TrimPrefix(c.Request.URL.Path, "/api/ai")
+        aiProxy.ServeHTTP(c.Writer, c.Request)
+    })
     // In Docker, we will copy dist to root or ./dist
     r.Use(static.Serve("/", static.LocalFile("./dist", true)))
     
