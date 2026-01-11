@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"fmt"
+	"log"
 	"math"
 	"math/rand"
 	"net/http"
@@ -131,87 +132,87 @@ func (h *BankHandler) GenerateISO20022Data(c *gin.Context) {
 
 	banks := []string{"SCB", "KBANK", "KTB", "BBL", "BAY", "TTB"}
 	
-	var wg sync.WaitGroup
-	sem := make(chan struct{}, 30) // Concurrent worker limit
+	go func() {
+		var wg sync.WaitGroup
+		sem := make(chan struct{}, 20) // Moderate concurrency
 
-	for i := 0; i < req.Count; i++ {
-		wg.Add(1)
-		go func(idx int) {
-			defer wg.Done()
-			sem <- struct{}{}
-			defer func() { <-sem }()
+		for i := 0; i < req.Count; i++ {
+			wg.Add(1)
+			go func(idx int) {
+				defer wg.Done()
+				sem <- struct{}{}
+				defer func() { <-sem }()
 
-			sourceBank := banks[rand.Intn(len(banks))]
-			targetBank := banks[rand.Intn(len(banks))]
-			for sourceBank == targetBank {
-				targetBank = banks[rand.Intn(len(banks))]
-			}
-
-			senderAcc := fmt.Sprintf("%s-%06d", sourceBank, rand.Intn(999999))
-			receiverAcc := fmt.Sprintf("%s-%06d", targetBank, rand.Intn(999999))
-			amount := 100.0 + rand.Float64()*50000.0
-
-			// Scenario Logic - each scenario creates UNIQUE accounts with identifiable prefixes
-			// but with random suffixes to simulate realistic network growth
-			if req.Scenario == "mule" {
-				// Mule ring: Multiple mule accounts with varying IDs
-				numMuleAccounts := 5 + rand.Intn(10) // 5-14 different mule accounts
-				muleID := rand.Intn(numMuleAccounts)
-				if idx%3 == 0 {
-					receiverAcc = fmt.Sprintf("%s-MULE-%03d", targetBank, muleID)
-					amount = 100000.0 + rand.Float64()*900000.0
+				sourceBank := banks[rand.Intn(len(banks))]
+				targetBank := banks[rand.Intn(len(banks))]
+				for sourceBank == targetBank {
+					targetBank = banks[rand.Intn(len(banks))]
 				}
-			} else if req.Scenario == "structuring" {
-				base := 48000.0
-				if rand.Float64() > 0.5 { base = 9000.0 }
-				amount = base + rand.Float64()*1999.0
-			} else if req.Scenario == "velocity" {
-				// Gambling: Multiple gambling site accounts (simulating different games/tables)
-				numGamblingSites := 3 + rand.Intn(5) // 3-7 different gambling receivers
-				siteID := rand.Intn(numGamblingSites)
-				receiverAcc = fmt.Sprintf("%s-GAME-%03d", targetBank, siteID)
-				amounts := []float64{100.0, 200.0, 300.0, 500.0, 1000.0}
-				amount = amounts[rand.Intn(len(amounts))]
-			} else if req.Scenario == "mixed" {
-				r := rand.Float64()
-				if r < 0.33 {
-					numMuleAccounts := 5 + rand.Intn(8)
+
+				senderAcc := fmt.Sprintf("%s-%06d", sourceBank, rand.Intn(999999))
+				receiverAcc := fmt.Sprintf("%s-%06d", targetBank, rand.Intn(999999))
+				amount := 100.0 + rand.Float64()*50000.0
+
+				// Scenario Logic
+				if req.Scenario == "mule" {
+					numMuleAccounts := 5 + rand.Intn(10)
 					muleID := rand.Intn(numMuleAccounts)
 					if idx%3 == 0 {
 						receiverAcc = fmt.Sprintf("%s-MULE-%03d", targetBank, muleID)
-						amount = 50000.0 + rand.Float64()*400000.0
+						amount = 100000.0 + rand.Float64()*900000.0
 					}
-				} else if r < 0.66 {
-					numBetSites := 4 + rand.Intn(6)
-					siteID := rand.Intn(numBetSites)
-					receiverAcc = fmt.Sprintf("%s-BET-%03d", targetBank, siteID)
-					amounts := []float64{500.0, 1000.0, 1500.0}
+				} else if req.Scenario == "structuring" {
+					base := 48000.0
+					if rand.Float64() > 0.5 { base = 9000.0 }
+					amount = base + rand.Float64()*1999.0
+				} else if req.Scenario == "velocity" {
+					numGamblingSites := 3 + rand.Intn(5)
+					siteID := rand.Intn(numGamblingSites)
+					receiverAcc = fmt.Sprintf("%s-GAME-%03d", targetBank, siteID)
+					amounts := []float64{100.0, 200.0, 300.0, 500.0, 1000.0}
 					amount = amounts[rand.Intn(len(amounts))]
-				} else {
-					amount = 49000.0 + rand.Float64()*900.0
+				} else if req.Scenario == "mixed" {
+					r := rand.Float64()
+					if r < 0.33 {
+						numMuleAccounts := 5 + rand.Intn(8)
+						muleID := rand.Intn(numMuleAccounts)
+						if idx%3 == 0 {
+							receiverAcc = fmt.Sprintf("%s-MULE-%03d", targetBank, muleID)
+							amount = 50000.0 + rand.Float64()*400000.0
+						}
+					} else if r < 0.66 {
+						numBetSites := 4 + rand.Intn(6)
+						siteID := rand.Intn(numBetSites)
+						receiverAcc = fmt.Sprintf("%s-BET-%03d", targetBank, siteID)
+						amounts := []float64{500.0, 1000.0, 1500.0}
+						amount = amounts[rand.Intn(len(amounts))]
+					} else {
+						amount = 49000.0 + rand.Float64()*900.0
+					}
 				}
-			}
 
-			txn := models.Transaction{
-				TransactionID:   fmt.Sprintf("TXID-%d-%d", time.Now().UnixNano(), idx),
-				Amount:          math.Round(amount*100) / 100,
-				Currency:        "THB",
-				Timestamp:       time.Now().Add(time.Duration(-idx*10) * time.Second),
-				SenderAccount:   senderAcc,
-				ReceiverAccount: receiverAcc,
-				SenderIP:        fmt.Sprintf("192.168.%d.%d", rand.Intn(255), rand.Intn(255)),
-				Channel:         "mobile",
-				TransactionType: "credit_transfer",
-				Location:        "Bangkok, TH",
-				DeviceID:        fmt.Sprintf("DEV-%x", rand.Int63()),
-			}
+				txn := models.Transaction{
+					TransactionID:   fmt.Sprintf("TXID-%d-%d", time.Now().UnixNano(), idx),
+					Amount:          math.Round(amount*100) / 100,
+					Currency:        "THB",
+					Timestamp:       time.Now().Add(time.Duration(-idx*10) * time.Second),
+					SenderAccount:   senderAcc,
+					ReceiverAccount: receiverAcc,
+					SenderIP:        fmt.Sprintf("192.168.%d.%d", rand.Intn(255), rand.Intn(255)),
+					Channel:         "mobile",
+					TransactionType: "credit_transfer",
+					Location:        "Bangkok, TH",
+					DeviceID:        fmt.Sprintf("DEV-%x", rand.Int63()),
+				}
 
-			_, _ = h.processAndSave(txn)
-		}(i)
-	}
+				_, _ = h.processAndSave(txn)
+			}(i)
+		}
+		wg.Wait()
+		log.Printf("Background simulation of %d transactions completed", req.Count)
+	}()
 
-	wg.Wait()
-	c.JSON(http.StatusOK, gin.H{"message": fmt.Sprintf("Triggered %d high-fidelity transactions", req.Count)})
+	c.JSON(http.StatusOK, gin.H{"message": fmt.Sprintf("Started background generation of %d %s transactions", req.Count, req.Scenario)})
 }
 
 func (h *BankHandler) ResetData(c *gin.Context) {

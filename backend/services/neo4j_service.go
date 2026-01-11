@@ -7,10 +7,13 @@ import (
 
 	"github.com/neo4j/neo4j-go-driver/v5/neo4j"
 	"bank-fraud-demo/models"
+	"bank-fraud-demo/db"
+	"encoding/json"
 )
 
 type Neo4jService struct {
-	Driver neo4j.DriverWithContext
+	Driver    neo4j.DriverWithContext
+	Connected bool
 }
 
 func NewNeo4jService(uri, username, password string) (*Neo4jService, error) {
@@ -21,18 +24,38 @@ func NewNeo4jService(uri, username, password string) (*Neo4jService, error) {
 	// Verify connection
 	ctx := context.Background()
 	err = driver.VerifyConnectivity(ctx)
+	connected := true
 	if err != nil {
-		// Log error but don't fail hard if Docker isn't up yet; we can retry later or fail at runtime
-		log.Printf("Warning: Could not connect to Neo4j: %v", err)
+		log.Printf("Warning: Could not connect to Neo4j: %v. Using SQLite fallback.", err)
+		connected = false
 	}
-	return &Neo4jService{Driver: driver}, nil
+	return &Neo4jService{Driver: driver, Connected: connected}, nil
 }
 
 func (s *Neo4jService) Close(ctx context.Context) error {
-	return s.Driver.Close(ctx)
+	if s.Driver != nil {
+		return s.Driver.Close(ctx)
+	}
+	return nil
 }
 
 func (s *Neo4jService) SaveTransaction(ctx context.Context, txn models.Transaction, analysis models.AnalysisResult) error {
+	reasonsJSON, _ := json.Marshal(analysis.Reasons)
+	
+	// Always save to SQLite as a local primary/fallback record
+	_, sqliteErr := db.DB.Exec(`
+		INSERT INTO graph_transactions (txn_id, sender_account, receiver_account, amount, timestamp, risk_score, action, reasons)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+		ON CONFLICT(txn_id) DO UPDATE SET
+			risk_score = excluded.risk_score,
+			action = excluded.action,
+			reasons = excluded.reasons
+	`, txn.TransactionID, txn.SenderAccount, txn.ReceiverAccount, txn.Amount, txn.Timestamp, analysis.RiskScore, analysis.Action, string(reasonsJSON))
+
+	if !s.Connected {
+		return sqliteErr
+	}
+
 	session := s.Driver.NewSession(ctx, neo4j.SessionConfig{AccessMode: neo4j.AccessModeWrite})
 	defer session.Close(ctx)
 
@@ -73,6 +96,42 @@ func (s *Neo4jService) SaveTransaction(ctx context.Context, txn models.Transacti
 }
 
 func (s *Neo4jService) GetRecentTransactions(ctx context.Context, limit int, minRisk float64) ([]map[string]any, error) {
+	if !s.Connected {
+		// Fallback to SQLite
+		rows, err := db.DB.Query(`
+			SELECT sender_account, receiver_account, amount, timestamp, txn_id, risk_score
+			FROM graph_transactions
+			WHERE risk_score >= ?
+			ORDER BY timestamp DESC
+			LIMIT ?
+		`, minRisk, limit)
+		if err != nil {
+			return nil, err
+		}
+		defer rows.Close()
+
+		var records []map[string]any
+		for rows.Next() {
+			var sender, receiver, txnId string
+			var amount, riskScore float64
+			var ts time.Time
+			if err := rows.Scan(&sender, &receiver, &amount, &ts, &txnId, &riskScore); err != nil {
+				continue
+			}
+			records = append(records, map[string]any{
+				"source":           sender,
+				"target":           receiver,
+				"sender_account":   sender,
+				"receiver_account": receiver,
+				"amount":           amount,
+				"timestamp":        ts.Format(time.RFC3339),
+				"txn_id":           txnId,
+				"risk_score":       riskScore,
+			})
+		}
+		return records, nil
+	}
+
 	session := s.Driver.NewSession(ctx, neo4j.SessionConfig{AccessMode: neo4j.AccessModeRead})
 	defer session.Close(ctx)
 
@@ -123,6 +182,68 @@ func (s *Neo4jService) GetRecentTransactions(ctx context.Context, limit int, min
 }
 
 func (s *Neo4jService) GetAccountHistory(ctx context.Context, accountID string) (map[string]any, error) {
+	if !s.Connected {
+		// Fallback to SQLite
+		rows, err := db.DB.Query(`
+			SELECT txn_id, amount, timestamp, risk_score, action, reasons, verification_status,
+				   CASE WHEN sender_account = ? THEN receiver_account ELSE sender_account END as other_acc,
+				   sender_account = ? as is_sender
+			FROM graph_transactions
+			WHERE sender_account = ? OR receiver_account = ?
+			ORDER BY timestamp DESC
+			LIMIT 20
+		`, accountID, accountID, accountID, accountID)
+		if err != nil {
+			return nil, err
+		}
+		defer rows.Close()
+
+		var history []map[string]any
+		var totalRisk float64
+		var count int
+		var highRiskCount int
+
+		for rows.Next() {
+			var txnId, action, reasons, verificationStatus, otherAcc string
+			var amount, riskScore float64
+			var ts time.Time
+			var isSender bool
+			if err := rows.Scan(&txnId, &amount, &ts, &riskScore, &action, &reasons, &verificationStatus, &otherAcc, &isSender); err != nil {
+				continue
+			}
+
+			totalRisk += riskScore
+			if riskScore > 80 { highRiskCount++ }
+			count++
+
+			role := "Receiver"
+			if isSender { role = "Sender" }
+
+			history = append(history, map[string]any{
+				"txn_id":              txnId,
+				"amount":              amount,
+				"timestamp":           ts.Format(time.RFC3339),
+				"risk_score":          riskScore,
+				"action":              action,
+				"reasons":             reasons,
+				"verification_status": verificationStatus,
+				"other_account":       otherAcc,
+				"role":                role,
+			})
+		}
+
+		avgRisk := 0.0
+		if count > 0 { avgRisk = totalRisk / float64(count) }
+
+		return map[string]any{
+			"account_id":     accountID,
+			"history":        history,
+			"avg_risk":       avgRisk,
+			"high_risk_txns": highRiskCount,
+			"total_txns":     count,
+		}, nil
+	}
+
 	session := s.Driver.NewSession(ctx, neo4j.SessionConfig{AccessMode: neo4j.AccessModeRead})
 	defer session.Close(ctx)
 
@@ -210,6 +331,13 @@ func (s *Neo4jService) GetAccountHistory(ctx context.Context, accountID string) 
 	return result.(map[string]any), nil
 }
 func (s *Neo4jService) ResetDatabase(ctx context.Context) error {
+	// Always reset SQLite
+	_, _ = db.DB.Exec("DELETE FROM graph_transactions")
+
+	if !s.Connected {
+		return nil
+	}
+
 	session := s.Driver.NewSession(ctx, neo4j.SessionConfig{AccessMode: neo4j.AccessModeWrite})
 	defer session.Close(ctx)
 
@@ -223,6 +351,37 @@ func (s *Neo4jService) ResetDatabase(ctx context.Context) error {
 // GetAccountRiskContext returns aggregated risk signals for an account
 // Used for graph-aware compound risk scoring
 func (s *Neo4jService) GetAccountRiskContext(ctx context.Context, accountID string) (map[string]any, error) {
+	if !s.Connected {
+		// Fallback to SQLite (simplified context)
+		var incomingCount, uniqueSenders, clusteringCount int64
+		var totalVolume, avgRisk float64
+
+		err := db.DB.QueryRow(`
+			SELECT count(*), count(DISTINCT sender_account), coalesce(sum(amount), 0), coalesce(avg(risk_score), 0)
+			FROM graph_transactions
+			WHERE receiver_account = ?
+		`, accountID).Scan(&incomingCount, &uniqueSenders, &totalVolume, &avgRisk)
+		
+		if err != nil {
+			// Graceful degradation
+			return map[string]any{
+				"incoming_tx_count":       int64(0),
+				"unique_sender_count":     int64(0),
+				"total_volume":            0.0,
+				"avg_incoming_risk":       0.0,
+				"clustering_amount_count": int64(0),
+			}, nil
+		}
+
+		return map[string]any{
+			"incoming_tx_count":       incomingCount,
+			"unique_sender_count":     uniqueSenders,
+			"total_volume":            totalVolume,
+			"avg_incoming_risk":       avgRisk,
+			"clustering_amount_count": clusteringCount,
+		}, nil
+	}
+
 	session := s.Driver.NewSession(ctx, neo4j.SessionConfig{AccessMode: neo4j.AccessModeRead})
 	defer session.Close(ctx)
 
@@ -276,6 +435,13 @@ func (s *Neo4jService) GetAccountRiskContext(ctx context.Context, accountID stri
 }
 
 func (s *Neo4jService) UpdateTransactionVerification(ctx context.Context, txnID string, verdict string) error {
+	// Always update SQLite
+	_, _ = db.DB.Exec("UPDATE graph_transactions SET verification_status = ? WHERE txn_id = ?", verdict, txnID)
+
+	if !s.Connected {
+		return nil
+	}
+
 	session := s.Driver.NewSession(ctx, neo4j.SessionConfig{AccessMode: neo4j.AccessModeWrite})
 	defer session.Close(ctx)
 

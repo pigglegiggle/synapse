@@ -42,6 +42,19 @@ func createTables() {
             action TEXT,
             timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
         );`,
+        `CREATE TABLE IF NOT EXISTS graph_transactions (
+            txn_id TEXT PRIMARY KEY,
+            sender_account TEXT,
+            receiver_account TEXT,
+            amount REAL,
+            timestamp DATETIME,
+            risk_score REAL,
+            action TEXT,
+            reasons TEXT,
+            verification_status TEXT DEFAULT 'PENDING'
+        );`,
+        `CREATE INDEX IF NOT EXISTS idx_graph_sender ON graph_transactions(sender_account);`,
+        `CREATE INDEX IF NOT EXISTS idx_graph_receiver ON graph_transactions(receiver_account);`,
 	}
 
 	for _, query := range queries {
