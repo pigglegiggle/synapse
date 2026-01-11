@@ -27,7 +27,7 @@ const TestBench = () => {
                 setLoading(false);
                 setStatus({ type: 'success', message: 'Simulation completed with 100% data fidelity.' });
             }
-        }, 1000);
+        }, 500);
     };
 
     const handleGenerate = async () => {

@@ -218,6 +218,9 @@ func (h *BankHandler) GenerateISO20022Data(c *gin.Context) {
 
 				_, _ = h.processAndSave(txn)
 				
+				// Small delay for demo visibility
+				time.Sleep(100 * time.Millisecond)
+
 				progressMu.Lock()
 				simProgress += (1.0 / float64(req.Count)) * 100
 				progressMu.Unlock()
