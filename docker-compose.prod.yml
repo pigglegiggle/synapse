@@ -1,0 +1,45 @@
+version: '3.8'
+
+services:
+  # 1. Main Application (Go Backend + React Frontend)
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8080:8080"
+    environment:
+      - GIN_MODE=release
+      - PORT=8080
+      # Internal networking: Point to the service names defined below
+      - NEO4J_URI=bolt://neo4j:7687 
+      - AI_SERVICE_URL=http://ai-service:5001
+      - NEO4J_USER=neo4j
+      - NEO4J_PASSWORD=password
+    depends_on:
+      - neo4j
+      - ai-service
+    volumes:
+      - ./data:/root/data # Persist SQLite data
+
+  # 2. AI Service (Python)
+  ai-service:
+    build:
+      context: ./ai-service
+      dockerfile: Dockerfile
+    ports:
+      - "5001:5001"
+    environment:
+      - PORT=5001
+
+  # 3. Neo4j Database
+  neo4j:
+    image: neo4j:5.12-community
+    ports:
+      - "7474:7474" # HTTP
+      - "7687:7687" # Bolt
+    environment:
+      - NEO4J_AUTH=neo4j/password
+    volumes:
+      - ./data/neo4j/data:/data
+      - ./data/neo4j/logs:/logs
