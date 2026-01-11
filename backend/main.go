@@ -84,7 +84,8 @@ func main() {
     // Serve Frontend Static Files (Production)
     // Reverse proxy for AI service on same port
     aiProxy := httputil.NewSingleHostReverseProxy(&url.URL{Scheme: "http", Host: "localhost:5001"})
-    r.Any("/api/ai/*proxyPath", func(c *gin.Context) {
+    r.Any("/api/ai/*any", func(c *gin.Context) {
+        // Trim the /api/ai prefix before proxying
         c.Request.URL.Path = strings.TrimPrefix(c.Request.URL.Path, "/api/ai")
         aiProxy.ServeHTTP(c.Writer, c.Request)
     })

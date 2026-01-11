@@ -55,7 +55,7 @@ COPY start.sh .
 RUN chmod +x start.sh
 
 # Expose Ports (8080=Go, 5001=Python)
-EXPOSE 8080 5001
+EXPOSE 8080
 
 # Environment Defaults
 ENV GIN_MODE=release

@@ -12,7 +12,7 @@ const RuleConfig = () => {
 
     const fetchRules = async () => {
         try {
-            const res = await fetch('http://localhost:5001/rules');
+            const res = await fetch('/api/ai/rules');
             const data = await res.json();
             setConfig(data.config);
             setGroups(data.groups);
@@ -35,7 +35,7 @@ const RuleConfig = () => {
             setGroups(newGroups);
 
             // API Call
-            await fetch('http://localhost:5001/rules/update', {
+            await fetch('/api/ai/rules/update', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ id: ruleId, enabled: !currentEnabled })
