@@ -5,6 +5,7 @@ import { Play, RotateCcw, Database, Server, Settings, CheckCircle, AlertTriangle
 const TestBench = () => {
     const [count, setCount] = useState(20);
     const [scenario, setScenario] = useState('mule');
+    const [loading, setLoading] = useState(false);
     const [status, setStatus] = useState(null);
     const [progress, setProgress] = useState(0);
     const pollingRef = useRef(null);
