@@ -127,45 +127,22 @@ func (s *Neo4jService) GetAccountHistory(ctx context.Context, accountID string) 
 	defer session.Close(ctx)
 
 	result, err := session.ExecuteRead(ctx, func(tx neo4j.ManagedTransaction) (any, error) {
-		// 1. Get recent transactions for this account (Sender or Receiver)
+		// Fetch transactions via the Transaction node to get canonical properties (including verification_status)
 		query := `
-			MATCH (a:Account {id: $acc_id})-[r:TRANSFERRED]-(other:Account)
+			MATCH (a:Account {id: $acc_id})<-[:FROM|TO]-(t:Transaction)
+			MATCH (t)-[:FROM]->(sender:Account)
+			MATCH (t)-[:TO]->(receiver:Account)
 			RETURN 
-				type(r) as type,
-				r.amount as amount, 
-				r.timestamp as timestamp, 
-				r.txn_id as txn_id, 
-				r.risk_score as risk_score,
-				r.action as action,
-				r.reasons as reasons,
-				r.verification_status as verification_status,
-				other.id as other_acc,
-				startNode(r).id = $acc_id as is_sender
-			ORDER BY r.timestamp DESC
-			LIMIT 20
-		`
-        // Note: I also need to make sure I'm matching 't:Transaction' correctly in the query. 
-        // The original query was: MATCH (a:Account)-[r:TRANSFERRED]-(other:Account). 
-        // 'r' is the relationship. But properties like verification_status are on the 'Transaction' NODE 't'.
-        // Wait, the SaveTransaction creates both a Transaction Node 't' and a Relationship 'r'.
-        // verification_status is being set on 't' (Transaction Node).
-        // The relationship 'r' duplicates some data. 
-        // I should fetch 't' as well.
-        // Modified query:
-        // MATCH (a:Account {id: $acc_id})<-[:FROM|TO]-(t:Transaction)
-        // MATCH (t)-[:FROM|TO]->(other:Account) WHERE other.id <> $acc_id
-        // RETURN ...
-        // PROBABLY EASIER FIX: Set verification_status on the RELATIONSHIP 'r' too?
-        // OR fix the query to lookup the transaction node. 
-        // Let's look at SaveTransaction:
-        // CREATE (t:Transaction ...) AND CREATE (s)-[r:TRANSFERRED]->(r)
-        // It saves data on both.
-        // If I only update T, then R is stale.
-        // I should update my update query to update BOTH.
-        
-        // Let's pause and update the UpdateTransactionVerification FIRST to update relevant components.
-				startNode(r).id = $acc_id as is_sender
-			ORDER BY r.timestamp DESC
+				t.txn_id as txn_id,
+				t.amount as amount, 
+				t.timestamp as timestamp, 
+				t.risk_score as risk_score,
+				t.action as action,
+				t.reasons as reasons,
+				t.verification_status as verification_status,
+				CASE WHEN sender.id = $acc_id THEN receiver.id ELSE sender.id END as other_acc,
+				sender.id = $acc_id as is_sender
+			ORDER BY t.timestamp DESC
 			LIMIT 20
 		`
 		res, err := tx.Run(ctx, query, map[string]any{"acc_id": accountID})
