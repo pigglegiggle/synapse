@@ -3,6 +3,7 @@ package main
 import (
 	"log"
 	"os"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 	"github.com/gin-contrib/cors"
@@ -14,19 +15,19 @@ import (
 
 func main() {
 	// Configuration (Env vars or defaults)
-	neo4jUri := os.Getenv("NEO4J_URI")
+	neo4jUri := strings.TrimSpace(os.Getenv("NEO4J_URI"))
 	if neo4jUri == "" {
 		neo4jUri = "bolt://localhost:7687"
 	}
-	neo4jUser := os.Getenv("NEO4J_USER")
+	neo4jUser := strings.TrimSpace(os.Getenv("NEO4J_USER"))
 	if neo4jUser == "" {
 		neo4jUser = "neo4j"
 	}
-	neo4jPass := os.Getenv("NEO4J_PASSWORD")
+	neo4jPass := strings.TrimSpace(os.Getenv("NEO4J_PASSWORD"))
 	if neo4jPass == "" {
 		neo4jPass = "password"
 	}
-	aiServiceUrl := os.Getenv("AI_SERVICE_URL")
+	aiServiceUrl := strings.TrimSpace(os.Getenv("AI_SERVICE_URL"))
 	if aiServiceUrl == "" {
 		aiServiceUrl = "http://localhost:5001"
 	}
@@ -87,8 +88,10 @@ func main() {
         c.File("./dist/index.html")
     })
 
-	log.Println("Starting Backend Server on :8080")
-	if err := r.Run(":8080"); err != nil {
+	log.Println("Starting Backend Server on :" + func() string { p := os.Getenv("PORT"); if p == "" { return "8080" }; return p }())
+	port := os.Getenv("PORT")
+	if port == "" { port = "8080" }
+	if err := r.Run(":" + port); err != nil {
 		log.Fatal("Failed to run server: ", err)
 	}
 }

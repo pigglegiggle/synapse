@@ -43,7 +43,7 @@ COPY --from=frontend-builder /app/frontend/dist ./dist
 # Copy AI Service Code & Install Deps
 COPY ai-service/requirements.txt ./ai-service/requirements.txt
 # Note: apk py3- packages handle heavy lifting, pip for flask
-RUN pip3 install --break-system-packages flask 
+RUN pip3 install --break-system-packages -r ai-service/requirements.txt 
 
 COPY ai-service/ ./ai-service/
 
@@ -59,6 +59,7 @@ EXPOSE 8080 5001
 
 # Environment Defaults
 ENV GIN_MODE=release
+ENV PORT=8080
 ENV NEO4J_URI=bolt://neo4j:7687
 
 # Run start script (launches both)

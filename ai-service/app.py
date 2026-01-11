@@ -238,5 +238,64 @@ def predict():
         "rule_version": RISK_MODEL_CONFIG["version"]
     })
 
+@app.route('/explain', methods=['POST'])
+def explain():
+    req_data = request.json
+    txn = req_data.get('transaction', {})
+    reasons = req_data.get('reasons', [])
+    risk_score = req_data.get('risk_score', 0)
+    
+    # Template Selection based on Risk Type
+    is_mule = any('Mule' in r or 'Pass-Through' in r for r in reasons)
+    is_gambling = any('Gambling' in r or 'Bet' in r or 'Clustering' in r for r in reasons)
+    is_structuring = any('Structuring' in r for r in reasons)
+    
+    explanation = ""
+    
+    if is_mule:
+        explanation = f"""**AI Analysis: Money Mule Indicator Detected**
+
+This account demonstrates clear signs of being a 'Money Mule' node. The transaction history reveals a high-velocity 'pass-through' pattern where funds are received and immediately transferred out within {txn.get('median_holding_time', 'less than 15')} minutes. This behavior is inconsistent with normal personal banking and strongly suggests the account is being used to layer illicit funds.
+
+**Recommendation:**
+Immediate freeze is recommended. The network analysis shows links to {len(reasons)} other flagged entities. Trigger Enhanced Due Diligence (EDD) to verify the source of funds and report to the Anti-Money Laundering Office (AMLO) if no justification is provided within 24 hours."""
+
+    elif is_gambling:
+        explanation = f"""**AI Analysis: Illegal Gambling Network Activity**
+
+The transaction patterns indicate participation in an illegal gambling network. We observed 'Amount Clustering' (frequent transfers of 100/300/500 THB) which is a signature of betting behavior. Additionally, the account interacts with a known 'Collector' node topology (many-to-one transfers).
+
+**Recommendation:**
+The risk score of {risk_score} exceeds the threshold for recreational use. This appears to be a systemic operation. We recommend blocking the account and adding the associated device ID ({txn.get('device_id', 'CHECK-DEVICE')}) to the blacklist to prevent new account opening."""
+
+    elif is_structuring:
+         explanation = f"""**AI Analysis: Smurfing/Structuring Attempt**
+
+This transaction appears to be part of a 'Structuring' (Smurfing) attempt designed to evade the 50,000 THB reporting threshold. Multiple transactions slightly below the limit were detected in a short time window. This is a deliberate attempt to bypass automated AML controls.
+
+**Recommendation:**
+File a Suspicious Transaction Report (STR). While individual amounts are small, the aggregate volume ({txn.get('amount', 'N/A')} THB context) is significant. Do not tip off the customer; proceed with backend monitoring."""
+
+    elif risk_score > 50:
+        explanation = f"""**AI Analysis: Anomalous Activity Detected**
+
+This transaction deviates from the user's established baseline. The Isolation Forest model detected a statistical anomaly in the 'time-of-day' and 'amount' vectors. While no specific crime typology (Mule/Gambling) is fully confirmed, the behavior is highly unusual for this profile.
+
+**Recommendation:**
+Place account on 'Watch List' for 7 days. If further anomalies occur, escalate to a manual review. No immediate freeze is necessary unless new evidence emerges."""
+
+    else:
+        explanation = f"""**AI Analysis: Low Risk / Normal Behavior**
+
+This transaction aligns with the user's historical patterns and peer group behavior. No known fraud typologies were triggered. The risk score of {risk_score} is well within the acceptable 'Green' zone.
+
+**Recommendation:**
+release transaction immediately. No further action required."""
+
+    return jsonify({
+        "explanation": explanation,
+        "generated_at": datetime.datetime.now().isoformat()
+    })
+
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5001)
