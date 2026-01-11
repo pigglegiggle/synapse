@@ -21,6 +21,12 @@ type BankHandler struct {
 	AI    *services.AIClients
 }
 
+var (
+	simProgress float64
+	simActive   bool
+	progressMu  sync.RWMutex
+)
+
 func NewBankHandler(neo4j *services.Neo4jService, ai *services.AIClients) *BankHandler {
 	return &BankHandler{
 		Neo4j: neo4j,
@@ -132,6 +138,11 @@ func (h *BankHandler) GenerateISO20022Data(c *gin.Context) {
 
 	banks := []string{"SCB", "KBANK", "KTB", "BBL", "BAY", "TTB"}
 	
+	progressMu.Lock()
+	simProgress = 0
+	simActive = true
+	progressMu.Unlock()
+
 	go func() {
 		var wg sync.WaitGroup
 		sem := make(chan struct{}, 20) // Moderate concurrency
@@ -206,9 +217,19 @@ func (h *BankHandler) GenerateISO20022Data(c *gin.Context) {
 				}
 
 				_, _ = h.processAndSave(txn)
+				
+				progressMu.Lock()
+				simProgress += (1.0 / float64(req.Count)) * 100
+				progressMu.Unlock()
 			}(i)
 		}
 		wg.Wait()
+		
+		progressMu.Lock()
+		simProgress = 100
+		simActive = false
+		progressMu.Unlock()
+
 		log.Printf("Background simulation of %d transactions completed", req.Count)
 	}()
 
@@ -231,6 +252,16 @@ func (h *BankHandler) ResetData(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"message": "System reset successful (Graph & Stats wiped)"})
+}
+
+func (h *BankHandler) GetSimulationProgress(c *gin.Context) {
+	progressMu.RLock()
+	defer progressMu.RUnlock()
+	
+	c.JSON(http.StatusOK, gin.H{
+		"progress": math.Round(simProgress),
+		"active":   simActive,
+	})
 }
 
 // --- Auth & Stats Handlers ---

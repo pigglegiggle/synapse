@@ -58,6 +58,16 @@ export const resetSystem = async () => {
     }
 };
 
+export const getSimulationProgress = async () => {
+    try {
+        const response = await axios.get(`${TEST_API}/progress`);
+        return response.data;
+    } catch (error) {
+        console.error("Error fetching simulation progress:", error);
+        return { progress: 0, active: false };
+    }
+};
+
 export const loginUser = async (username, password) => {
     try {
         const response = await axios.post(`${PLATFORM_API}/login`, { username, password });

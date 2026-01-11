@@ -74,6 +74,7 @@ func main() {
 	{
 		testGroup.POST("/generate", handler.GenerateISO20022Data)
 		testGroup.POST("/reset", handler.ResetData)
+		testGroup.GET("/progress", handler.GetSimulationProgress)
 	}
 
     // Platform Routes (Auth, Stats)

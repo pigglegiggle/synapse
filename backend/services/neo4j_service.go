@@ -99,7 +99,7 @@ func (s *Neo4jService) GetRecentTransactions(ctx context.Context, limit int, min
 	if !s.Connected {
 		// Fallback to SQLite
 		rows, err := db.DB.Query(`
-			SELECT sender_account, receiver_account, amount, timestamp, txn_id, risk_score
+			SELECT sender_account, receiver_account, amount, timestamp, txn_id, risk_score, reasons
 			FROM graph_transactions
 			WHERE risk_score >= ?
 			ORDER BY timestamp DESC
@@ -112,12 +112,17 @@ func (s *Neo4jService) GetRecentTransactions(ctx context.Context, limit int, min
 
 		var records []map[string]any
 		for rows.Next() {
-			var sender, receiver, txnId string
+			var sender, receiver, txnId, reasonsStr string
 			var amount, riskScore float64
 			var ts time.Time
-			if err := rows.Scan(&sender, &receiver, &amount, &ts, &txnId, &riskScore); err != nil {
+			if err := rows.Scan(&sender, &receiver, &amount, &ts, &txnId, &riskScore, &reasonsStr); err != nil {
 				continue
 			}
+
+			var reasons []string
+			_ = json.Unmarshal([]byte(reasonsStr), &reasons)
+			if reasons == nil { reasons = []string{} }
+
 			records = append(records, map[string]any{
 				"source":           sender,
 				"target":           receiver,
@@ -127,6 +132,7 @@ func (s *Neo4jService) GetRecentTransactions(ctx context.Context, limit int, min
 				"timestamp":        ts.Format(time.RFC3339),
 				"txn_id":           txnId,
 				"risk_score":       riskScore,
+				"reasons":          reasons,
 			})
 		}
 		return records, nil
@@ -204,13 +210,17 @@ func (s *Neo4jService) GetAccountHistory(ctx context.Context, accountID string) 
 		var highRiskCount int
 
 		for rows.Next() {
-			var txnId, action, reasons, verificationStatus, otherAcc string
+			var txnId, action, reasonsStr, verificationStatus, otherAcc string
 			var amount, riskScore float64
 			var ts time.Time
 			var isSender bool
-			if err := rows.Scan(&txnId, &amount, &ts, &riskScore, &action, &reasons, &verificationStatus, &otherAcc, &isSender); err != nil {
+			if err := rows.Scan(&txnId, &amount, &ts, &riskScore, &action, &reasonsStr, &verificationStatus, &otherAcc, &isSender); err != nil {
 				continue
 			}
+
+			var reasons []string
+			_ = json.Unmarshal([]byte(reasonsStr), &reasons)
+			if reasons == nil { reasons = []string{} }
 
 			totalRisk += riskScore
 			if riskScore > 80 { highRiskCount++ }

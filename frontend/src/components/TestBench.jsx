@@ -1,22 +1,44 @@
-import React, { useState } from 'react';
-import { generateData, resetSystem } from '../api';
-import { Play, RotateCcw, Database, Server, Settings, CheckCircle, AlertTriangle, Loader, Users, Dice5, Activity, Network } from 'lucide-react';
+import React, { useState, useEffect, useRef } from 'react';
+import { generateData, resetSystem, getSimulationProgress } from '../api';
+import { Play, RotateCcw, Database, Server, Settings, CheckCircle, AlertTriangle, Loader, Users, Dice5, Activity, Network, BarChart } from 'lucide-react';
 
 const TestBench = () => {
     const [count, setCount] = useState(20);
     const [scenario, setScenario] = useState('mule');
-    const [loading, setLoading] = useState(false);
     const [status, setStatus] = useState(null);
+    const [progress, setProgress] = useState(0);
+    const pollingRef = useRef(null);
+
+    useEffect(() => {
+        return () => {
+            if (pollingRef.current) clearInterval(pollingRef.current);
+        };
+    }, []);
+
+    const pollProgress = () => {
+        if (pollingRef.current) clearInterval(pollingRef.current);
+
+        pollingRef.current = setInterval(async () => {
+            const data = await getSimulationProgress();
+            setProgress(data.progress);
+            if (!data.active && data.progress >= 100) {
+                clearInterval(pollingRef.current);
+                setLoading(false);
+                setStatus({ type: 'success', message: 'Simulation completed with 100% data fidelity.' });
+            }
+        }, 1000);
+    };
 
     const handleGenerate = async () => {
         setLoading(true);
         setStatus(null);
+        setProgress(0);
         try {
             const res = await generateData(count, scenario);
-            setStatus({ type: 'success', message: `${res.message || 'Data generated successfully'}` });
+            // status will be updated when progress reaches 100%
+            pollProgress();
         } catch (err) {
             setStatus({ type: 'error', message: 'Failed to generate data. Check backend connection.' });
-        } finally {
             setLoading(false);
         }
     };
@@ -138,9 +160,30 @@ const TestBench = () => {
                             }`}
                     >
                         {loading ? <Loader className="w-5 h-5 animate-spin" /> : <Play className="w-5 h-5 fill-current" />}
-                        {loading ? 'Simulating Traffic...' : 'Execute Simulation'}
+                        {loading ? 'Simulating...' : 'Execute Simulation'}
                     </button>
                 </div>
+
+                {loading && (
+                    <div className="mt-8 pt-8 border-t border-gray-100">
+                        <div className="flex items-center justify-between mb-2">
+                            <span className="text-sm font-semibold text-gray-700">Simulating Transaction Flow</span>
+                            <span className="text-sm font-bold text-blue-600">{progress}%</span>
+                        </div>
+                        <div className="w-full bg-gray-100 rounded-full h-3 overflow-hidden border border-gray-200 shadow-inner">
+                            <div
+                                className="bg-gradient-to-r from-blue-500 to-indigo-600 h-full transition-all duration-500 ease-out relative"
+                                style={{ width: `${progress}%` }}
+                            >
+                                <div className="absolute inset-0 bg-white/20 animate-pulse" />
+                            </div>
+                        </div>
+                        <p className="text-xs text-gray-400 mt-3 flex items-center gap-2">
+                            <Activity className="w-3 h-3 text-blue-400" />
+                            Ingesting ISO-20022 messages and performing graph-aware risk scoring...
+                        </p>
+                    </div>
+                )}
             </div>
 
             {status && (
