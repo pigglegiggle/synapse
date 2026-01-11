@@ -1,0 +1,37 @@
+version: '3.8'
+
+services:
+  neo4j:
+    image: neo4j:latest
+    container_name: bank-fraud-neo4j
+    ports:
+      - "7474:7474" # HTTP
+      - "7687:7687" # Bolt
+    environment:
+      NEO4J_AUTH: neo4j/password
+    volumes:
+      - ./data/neo4j:/data
+      - ./logs/neo4j:/logs
+
+  ai-service:
+    build: ./ai-service
+    container_name: bank-fraud-ai
+    ports:
+      - "5001:5001"
+    environment:
+      - PORT=5001
+
+  synapse-app:
+    build: .
+    container_name: bank-fraud-app
+    ports:
+      - "8080:8080" # Maps Host 8080 to Container 8080
+    environment:
+      - NEO4J_URI=bolt://neo4j:7687
+      - NEO4J_USER=neo4j
+      - NEO4J_PASSWORD=password
+      - AI_SERVICE_URL=http://ai-service:5001
+      - GIN_MODE=release
+    depends_on:
+      - neo4j
+      - ai-service

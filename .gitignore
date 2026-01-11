@@ -1,0 +1,22 @@
+# Neo4j Data and Logs
+data/
+logs/
+
+# System Files
+.DS_Store
+
+# IDEs
+.vscode/
+.idea/
+
+# Environment Variables
+.env
+
+# Python
+__pycache__/
+*.pyc
+
+# Node
+node_modules/
+dist/
+build/
